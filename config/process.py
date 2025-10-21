@@ -6,7 +6,6 @@ import requests
 import io
 from typing import Union, Dict, Any
 from dotenv import load_dotenv
-from tabulate import tabulate
 from config.rich_message import RichMessage
 from langchain_groq import ChatGroq
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
@@ -155,155 +154,7 @@ def load_csv_from_source(source: Union[str, io.BytesIO], max_rows: int = 10000) 
         raise ValueError("Không thể đọc file với các encoding phổ biến")
 
 
-def summarize_dataset(df: pd.DataFrame) -> str:
-    """Tóm tắt thông tin dataset"""
-    summary = f"""
-TỔNG QUAN DATASET
-{'='*50}
-Thông tin cơ bản:
-  - Số dòng: {len(df):,}
-  - Số cột: {len(df.columns)}
-  - Tên các cột: {', '.join(df.columns.tolist())}
-
-Kiểu dữ liệu:
-{df.dtypes.value_counts().to_string()}
-
-Bộ nhớ sử dụng: {df.memory_usage(deep=True).sum() / 1024:.2f} KB
-
-Các cột số: {', '.join(df.select_dtypes(include=['int64', 'float64']).columns.tolist())}
-Các cột text: {', '.join(df.select_dtypes(include=['object']).columns.tolist())}
-"""
-    return summary
-
-
-def basic_stats(df: pd.DataFrame) -> str:
-    """Thống kê cơ bản cho các cột số"""
-    numeric_cols = df.select_dtypes(include=['int64', 'float64'])
-    
-    if len(numeric_cols.columns) == 0:
-        return "Dataset không có cột số nào để thống kê."
-    
-    stats = f"""
-THỐNG KÊ CÁC CỘT SỐ
-{'='*50}
-{numeric_cols.describe().to_string()}
-
-PHÂN BỐ:
-"""
-    
-    for col in numeric_cols.columns:
-        stats += f"\n{col}:"
-        stats += f"\n  - Min: {numeric_cols[col].min()}"
-        stats += f"\n  - Max: {numeric_cols[col].max()}"
-        stats += f"\n  - Mean: {numeric_cols[col].mean():.2f}"
-        stats += f"\n  - Median: {numeric_cols[col].median():.2f}"
-        stats += f"\n  - Std Dev: {numeric_cols[col].std():.2f}"
-    
-    return stats
-
-
-def find_missing_values(df: pd.DataFrame) -> str:
-    """Tìm các cột có missing values"""
-    missing = df.isnull().sum()
-    missing_pct = (missing / len(df)) * 100
-    
-    missing_df = pd.DataFrame({
-        'Cột': missing.index,
-        'Số missing': missing.values,
-        'Tỷ lệ (%)': missing_pct.values
-    })
-    
-    missing_df = missing_df[missing_df['Số missing'] > 0].sort_values('Số missing', ascending=False)
-    
-    if len(missing_df) == 0:
-        return "Dataset không có giá trị missing!"
-    
-    result = f"""
-PHÂN TÍCH MISSING VALUES
-{'='*50}
-{missing_df.to_string(index=False)}
-
-Cột có nhiều missing nhất: {missing_df.iloc[0]['Cột']} ({missing_df.iloc[0]['Tỷ lệ (%)']:.2f}%)
-"""
-    return result
-
-
-def plot_histogram(df: pd.DataFrame, column: str) -> Dict:
-    """
-    Tạo histogram cho một cột số và trả về base64 image
-    
-    Returns:
-        Dict với 'text' và 'chart_base64'
-    """
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    from io import BytesIO
-    
-    if column not in df.columns:
-        return {
-            'text': f"Không tìm thấy cột '{column}'",
-            'chart_base64': None
-        }
-    
-    if not pd.api.types.is_numeric_dtype(df[column]):
-        return {
-            'text': f"Cột '{column}' không phải là cột số",
-            'chart_base64': None
-        }
-    
-    # Loại bỏ NaN
-    data = df[column].dropna()
-    
-    if len(data) == 0:
-        return {
-            'text': f"Cột '{column}' không có dữ liệu",
-            'chart_base64': None
-        }
-    
-    # Tạo biểu đồ
-    plt.figure(figsize=(10, 6))
-    plt.hist(data, bins=20, color='skyblue', edgecolor='black', alpha=0.7)
-    plt.title(f'Histogram của {column}', fontsize=14, fontweight='bold')
-    plt.xlabel(column, fontsize=12)
-    plt.ylabel('Tần suất', fontsize=12)
-    plt.grid(axis='y', alpha=0.3)
-    
-    # Thêm thống kê
-    stats_text = f'Min: {data.min():.2f}\nMax: {data.max():.2f}\nMean: {data.mean():.2f}\nMedian: {data.median():.2f}'
-    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes,
-             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    plt.tight_layout()
-    
-    # Convert to base64
-    buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    chart_base64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close()
-    
-    # Text description
-    text_desc = f"""
- **Histogram của cột '{column}'**
-
-Thống kê:
-- Min: {data.min():.2f}
-- Max: {data.max():.2f}  
-- Mean: {data.mean():.2f}
-- Median: {data.median():.2f}
-- Std: {data.std():.2f}
-"""
-    
-    return {
-        'text': text_desc,
-        'chart_base64': chart_base64,
-        'chart_type': 'histogram',
-        'column': column
-    }
-
-
-# Pandas Agent Helper
+# Pandas Agent Helper - ĐÂY LÀ CORE, AGENT TỰ XỬ LÝ MỌI THỨ
 def create_csv_agent(df: pd.DataFrame):
     """Tạo pandas agent để phân tích CSV"""
     llm = ChatGroq(
@@ -339,6 +190,10 @@ QUAN TRỌNG: Trả lời bằng Tiếng Việt một cách tự nhiên, chuyên
 
 # Process CSV - Main Function
 def csv_process(source: Union[str, io.BytesIO], user_question: str = None, max_rows: int = 10000) -> Union[str, Dict]:
+    """
+    Xử lý CSV với pandas agent - ĐỂ AGENT TỰ PHÂN TÍCH
+    Chỉ can thiệp khi cần visualization (để trả về chart base64)
+    """
     try:
         # Load CSV từ source
         df = load_csv_from_source(source, max_rows)
@@ -350,11 +205,16 @@ def csv_process(source: Union[str, io.BytesIO], user_question: str = None, max_r
                 intent="error"
             )
         
-        # Nếu không có câu hỏi, trả về tổng quan
+        # Nếu không có câu hỏi, tạo quick summary
         if not user_question or user_question.strip() == "":
-            summary_text = summarize_dataset(df)
+            summary = f"""Dataset có **{len(df)} dòng** và **{len(df.columns)} cột**.
+
+**Các cột:** {', '.join(df.columns.tolist())}
+
+Bạn có thể hỏi tôi về dữ liệu này!"""
+            
             return RichMessage.create_mixed_message(
-                text=summary_text + "\n\n**Dữ liệu mẫu (10 dòng đầu):**",
+                text=summary,
                 table=df.head(10),
                 intent="data_overview"
             )
@@ -367,68 +227,54 @@ def csv_process(source: Union[str, io.BytesIO], user_question: str = None, max_r
         
         # Nếu người dùng yêu cầu vẽ biểu đồ
         if viz_request['needs_visualization']:
-            column_to_plot = None
-            
-            # Tìm tên cột trực tiếp từ câu hỏi
-            # Ưu tiên tìm các từ sau "của", "column", "cột"
-            import re
-            
-            # Pattern 1: "của cột X" hoặc "của X"
-            matches = re.findall(r'(?:của\s+cột\s+|của\s+|column\s+|cột\s+)([A-Z_][A-Z0-9_]*)', user_question, re.IGNORECASE)
-            if matches:
-                potential_col = matches[0].upper()
-                # Kiểm tra xem có trong df không
+            # HỎI AGENT tìm cột phù hợp thay vì dùng regex cứng nhắc
+            try:
+                column_question = f"""Dựa vào câu hỏi: "{user_question}"
+                
+Hãy trả về CHÍNH XÁC TÊN MỘT CỘT (không giải thích) phù hợp nhất để vẽ biểu đồ.
+Nếu không rõ cột nào, chọn cột có ý nghĩa nhất cho loại biểu đồ "{viz_request['chart_type']}".
+
+Chỉ trả về TÊN CỘT, không có text khác."""
+                
+                agent_response = agent.invoke(column_question)
+                suggested_col = agent_response['output'].strip()
+                
+                # Tìm cột trong danh sách columns
+                column_to_plot = None
                 for col in df.columns:
-                    if col.upper() == potential_col:
+                    if col in suggested_col or col.lower() in suggested_col.lower():
                         column_to_plot = col
                         break
+                
+                # Nếu không tìm thấy, lấy cột đầu tiên phù hợp với chart type
+                if not column_to_plot:
+                    chart_type = viz_request['chart_type']
+                    if chart_type in ['bar', 'pie']:
+                        # Ưu tiên categorical
+                        cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                        num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+                        column_to_plot = cat_cols[0] if cat_cols else (num_cols[0] if num_cols else None)
+                    else:
+                        # Cần numeric
+                        num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+                        column_to_plot = num_cols[0] if num_cols else None
+                
+                if not column_to_plot:
+                    return RichMessage.create_text_message(
+                        f"Không tìm thấy cột phù hợp để vẽ {viz_request['chart_type']}. Các cột: {', '.join(df.columns.tolist())}",
+                        intent="error"
+                    )
             
-            # Pattern 2: Tìm tất cả các từ viết hoa liên tiếp (tên cột)
-            if not column_to_plot:
+            except Exception as e:
+                # Fallback: tìm cột đơn giản
                 for col in df.columns:
                     if col.upper() in user_question.upper():
                         column_to_plot = col
                         break
-            
-            # Nếu vẫn không tìm thấy, chọn cột phù hợp dựa vào chart type
-            if not column_to_plot:
-                chart_type = viz_request['chart_type']
                 
-                # Histogram cần cột số
-                if chart_type == 'histogram':
-                    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-                    if numeric_cols:
-                        column_to_plot = numeric_cols[0]
-                    else:
-                        return RichMessage.create_text_message(
-                            "Dataset không có cột số nào để vẽ histogram. Thử 'bar chart' hoặc 'pie chart' cho dữ liệu categorical.",
-                            intent="error"
-                        )
-                # Bar/Pie có thể dùng cột categorical hoặc số
-                elif chart_type in ['bar', 'pie']:
-                    # Ưu tiên cột categorical (object/string)
-                    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
-                    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-                    
-                    if categorical_cols:
-                        column_to_plot = categorical_cols[0]
-                    elif numeric_cols:
-                        column_to_plot = numeric_cols[0]
-                    else:
-                        return RichMessage.create_text_message(
-                            "Dataset không có cột phù hợp để vẽ biểu đồ.",
-                            intent="error"
-                        )
-                # Các loại khác (line, scatter) cần cột số
-                else:
-                    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-                    if numeric_cols:
-                        column_to_plot = numeric_cols[0]
-                    else:
-                        return RichMessage.create_text_message(
-                            "Dataset không có cột số nào để vẽ biểu đồ này.",
-                            intent="error"
-                        )
+                if not column_to_plot:
+                    num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+                    column_to_plot = num_cols[0] if num_cols else df.columns[0]
             
             # Kiểm tra cột tồn tại
             if column_to_plot not in df.columns:
@@ -464,28 +310,20 @@ def csv_process(source: Union[str, io.BytesIO], user_question: str = None, max_r
             
             return chart_message
         
-        # Nếu không cần visualization, dùng agent để trả lời
+        # Nếu không cần visualization, ĐỂ AGENT TỰ TRẢ LỜI
         try:
             response = agent.invoke(user_question)
             answer = response['output']
             
-            # Kiểm tra xem câu trả lời có chứa bảng không (dựa vào markdown table syntax)
-            if '|' in answer and '\n' in answer:
-                # Có thể là bảng markdown
-                return RichMessage.create_text_message(
-                    content=answer,
-                    intent="data_analysis"
-                )
-            else:
-                # Text thông thường
-                return RichMessage.create_text_message(
-                    content=answer,
-                    intent="data_analysis"
-                )
+            # Trả về text answer (agent tự format markdown nếu cần)
+            return RichMessage.create_text_message(
+                content=answer,
+                intent="data_analysis"
+            )
         
         except Exception as e:
             return RichMessage.create_text_message(
-                f"Lỗi khi phân tích: {str(e)}",
+                f"❌ Lỗi khi phân tích: {str(e)}",
                 intent="error"
             )
         
@@ -509,39 +347,3 @@ def csv_process(source: Union[str, io.BytesIO], user_question: str = None, max_r
             f"Lỗi xử lý CSV: {str(e)}",
             intent="error"
         )
-
-
-def analyze_with_ai(df: pd.DataFrame, question: str) -> str:
-    """Sử dụng AI để trả lời câu hỏi về dataset"""
-    try:
-        # Tạo context về dataset
-        context = f"""
-Thông tin dataset:
-- Số dòng: {len(df)}
-- Số cột: {len(df.columns)}
-- Các cột: {', '.join(df.columns.tolist())}
-
-Dữ liệu mẫu (5 dòng đầu):
-{df.head().to_string()}
-
-Thống kê cơ bản:
-{df.describe().to_string()}
-"""
-        
-        client = openai.OpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=GROQ_API_KEY
-        )
-        
-        response = client.chat.completions.create(
-            model=model_text,
-            messages=[
-                {"role": "system", "content": "Bạn là chuyên gia phân tích dữ liệu. Trả lời câu hỏi dựa trên dữ liệu được cung cấp một cách chi tiết và chính xác."},
-                {"role": "user", "content": f"{context}\n\nCâu hỏi: {question}"}
-            ]
-        )
-        
-        return response.choices[0].message.content
-    
-    except Exception as e:
-        return f"Lỗi phân tích với AI: {str(e)}"
