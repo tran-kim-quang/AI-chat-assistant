@@ -6,6 +6,7 @@ from io import StringIO
 import contextlib
 import signal
 import traceback
+import threading
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,10 +34,11 @@ class CodeExecutor:
     
     # Các built-in functions bị cấm
     FORBIDDEN_BUILTINS = {
-        'eval', 'exec', 'compile', '__import__', 'open', 
+        'eval', 'exec', 'compile', 'open', 
         'input', 'raw_input', 'file', 'execfile', 'reload',
         'exit', 'quit', 'help', 'license', 'copyright', 'credits'
     }
+    # Lưu ý: __import__ sẽ được thay bằng safe_import trong execute_code()
     
     def __init__(self, timeout: int = 5):
         self.timeout = timeout
@@ -45,7 +47,9 @@ class CodeExecutor:
             api_key=GROQ_API_KEY
         )
     
-    def generate_code(self, user_request: str, language: str) -> Dict[str, Any]:
+    def generate_code(self, user_request: str, language: str = 'python') -> Dict[str, Any]:
+        
+        allowed_modules_str = ', '.join(sorted(self.ALLOWED_IMPORTS))
         
         prompt = f"""
 Bạn là chuyên gia lập trình. Hãy viết code theo ngôn ngữ được yêu cầu để thực hiện yêu cầu của người dùng:
@@ -54,7 +58,7 @@ NGÔN NGỮ: {language}
 YÊU CẦU: {user_request}
 
 QUY TẮC:
-1. Chỉ sử dụng {language} standard library
+1. Chỉ được import các modules sau: {allowed_modules_str}
 2. Code phải hoàn chỉnh và có thể chạy ngay
 3. Sử dụng hàm main() để tổ chức code
 4. In kết quả ra console với print()
@@ -149,10 +153,14 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
         import_lines = [line.strip() for line in code.split('\n') if line.strip().startswith('import') or line.strip().startswith('from')]
         
         for imp_line in import_lines:
-            for module in imp_line.split():
-                if module not in self.ALLOWED_IMPORTS and module not in ['import', 'from', 'as']:
-                    if not any(allowed in imp_line for allowed in self.ALLOWED_IMPORTS):
-                        warnings.append(f"Import không trong whitelist: {imp_line}")
+            # Parse module name từ import statement
+            # "import math" → "math"
+            # "from collections import Counter" → "collections"
+            parts = imp_line.split()
+            if len(parts) >= 2:
+                module_name = parts[1].split('.')[0]  # Lấy base module
+                if module_name not in self.ALLOWED_IMPORTS:
+                    warnings.append(f"Import module '{module_name}' không trong whitelist: {imp_line}")
         
         is_safe = len(issues) == 0
         
@@ -197,6 +205,18 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
             if k not in self.FORBIDDEN_BUILTINS
         }
         
+        # Tạo safe import function chỉ cho phép modules trong whitelist
+        original_import = __import__
+        def safe_import(name, *args, **kwargs):
+            # Lấy module name gốc (trước dấu chấm đầu tiên)
+            base_module = name.split('.')[0]
+            if base_module in self.ALLOWED_IMPORTS:
+                return original_import(name, *args, **kwargs)
+            raise ImportError(f"Import module '{name}' không được phép. Chỉ cho phép: {', '.join(self.ALLOWED_IMPORTS)}")
+        
+        # Thêm safe_import vào builtins
+        safe_builtins['__import__'] = safe_import
+        
         restricted_globals = {
             '__builtins__': safe_builtins,
             '__name__': '__main__',
@@ -209,9 +229,13 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
         
         start_time = time.time()
         
+        # Kiểm tra xem có phải main thread không
+        is_main_thread = threading.current_thread() == threading.main_thread()
+        use_signal_timeout = hasattr(signal, 'SIGALRM') and is_main_thread
+        
         try:
-            # Setup timeout (chỉ hoạt động trên Unix)
-            if hasattr(signal, 'SIGALRM'):
+            # Setup timeout (chỉ hoạt động trên Unix và trong main thread)
+            if use_signal_timeout:
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(self.timeout)
             
@@ -220,7 +244,7 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
                 exec(code, restricted_globals)
             
             # Cancel timeout
-            if hasattr(signal, 'SIGALRM'):
+            if use_signal_timeout:
                 signal.alarm(0)
             
             execution_time = time.time() - start_time
@@ -261,12 +285,12 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
         
         finally:
             # Cleanup
-            if hasattr(signal, 'SIGALRM'):
+            if use_signal_timeout:
                 signal.alarm(0)
             output_buffer.close()
             error_buffer.close()
     
-    def generate_and_execute(self, user_request: str) -> Dict[str, Any]:
+    def generate_and_execute(self, user_request: str, language: str = 'python') -> Dict[str, Any]:
         """
         Sinh code và thực thi luôn
         
@@ -279,7 +303,7 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
             }
         """
         # Generate code
-        gen_result = self.generate_code(user_request)
+        gen_result = self.generate_code(user_request, language)
         
         if not gen_result['ready_to_run']:
             return {
@@ -304,9 +328,23 @@ QUAN TRỌNG: Trả về CHÍNH XÁC format JSON, không thêm text nào khác.
             'success': exec_result['success']
         }
     
-    def format_result(self, result: Dict[str, Any]) -> str:
-        """Format kết quả để hiển thị cho user"""
+    def format_result(self, result: Dict[str, Any], show_code: bool = False) -> str:
+        """
+        Format kết quả để hiển thị cho user
         
+        Args:
+            result: Kết quả từ generate_and_execute()
+            show_code: Nếu True, hiển thị code. Nếu False, chỉ hiển thị output
+        """
+        
+        if not show_code:
+            # Chỉ hiển thị output, không hiển thị code
+            if result['success']:
+                return result['execution_result']['output']
+            else:
+                return f"Lỗi: {result['execution_result']['error']}"
+        
+        # Format đầy đủ với code (cho debug)
         output = f"""
 CODE GENERATED:
 {'='*60}

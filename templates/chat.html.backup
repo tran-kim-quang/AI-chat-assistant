@@ -7,7 +7,6 @@
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
     <style>
         :root {
@@ -33,7 +32,6 @@
             height: calc(100vh - 40px);
             display: flex;
             flex-direction: column;
-            overflow: hidden;
         }
         
         .chat-header {
@@ -59,10 +57,8 @@
         .chat-messages {
             flex: 1;
             overflow-y: auto;
-            overflow-x: hidden;
             padding: 20px 30px;
             background: #fafafa;
-            min-height: 0;
         }
         
         .message {
@@ -127,40 +123,6 @@
             background: rgba(0,0,0,0.1);
             margin-top: 5px;
             display: inline-block;
-        }
-        
-        /* Chart & Table Styles */
-        .chart-container {
-            margin: 15px 0;
-            text-align: center;
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        
-        .chart-container img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
-        }
-        
-        .table-container {
-            margin: 15px 0;
-            overflow-x: auto;
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        
-        .table-container table {
-            margin: 0 !important;
-            font-size: 0.9rem;
-        }
-        
-        .message-content {
-            margin-bottom: 10px;
         }
         
         .chat-input-area {
@@ -395,36 +357,11 @@
                     sessionId = data.session_id;
                     document.getElementById('sessionId').textContent = `Session: ${sessionId.substring(0, 8)}...`;
                     
-                    // Load lịch sử chat nếu có
-                    await loadChatHistory();
-                    
-                    // Display welcome message nếu chưa có lịch sử
-                    const messagesDiv = document.getElementById('chatMessages');
-                    if (messagesDiv.children.length === 0) {
-                        addMessage('assistant', data.welcome_message, 'greeting');
-                    }
+                    // Display welcome message
+                    addMessage('assistant', data.welcome_message, 'greeting');
                 }
             } catch (error) {
                 console.error('Error initializing session:', error);
-            }
-        }
-
-        async function loadChatHistory() {
-            try {
-                const response = await fetch('/api/history');
-                const data = await response.json();
-                
-                if (data.success && data.history && data.history.length > 0) {
-                    const messagesDiv = document.getElementById('chatMessages');
-                    messagesDiv.innerHTML = '';  // Clear placeholder
-                    
-                    // Render từng message trong lịch sử
-                    data.history.forEach(msg => {
-                        addMessage(msg.role, msg.content, msg.intent || null);
-                    });
-                }
-            } catch (error) {
-                console.error('Error loading chat history:', error);
             }
         }
 
@@ -455,7 +392,7 @@
                 hideTyping();
                 
                 if (data.success) {
-                    addMessage('assistant', data.response, data.intent, data.confidence, data);
+                    addMessage('assistant', data.response, data.intent, data.confidence);
                 } else {
                     addMessage('assistant', 'Lỗi: ' + data.error, 'error');
                 }
@@ -465,12 +402,11 @@
             }
         }
 
-        function addMessage(role, content, intent = null, confidence = null, messageData = null) {
+        function addMessage(role, content, intent = null, confidence = null) {
             const messagesDiv = document.getElementById('chatMessages');
             
-            // Clear placeholder ONLY if it's the initial placeholder (no messages yet)
-            const placeholder = messagesDiv.querySelector('p.text-muted');
-            if (placeholder && messagesDiv.children.length === 1) {
+            // Clear placeholder if exists
+            if (messagesDiv.querySelector('.text-muted')) {
                 messagesDiv.innerHTML = '';
             }
             
@@ -484,16 +420,14 @@
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             
-            // Render content dựa vào message_type
-            if (messageData && messageData.message_type) {
-                renderRichContent(bubble, content, messageData);
+            // Format content
+            let formattedContent = content;
+            
+            // Check if content contains HTML table
+            if (content.includes('<table')) {
+                bubble.innerHTML = formattedContent;
             } else {
-                // Fallback to old behavior
-                if (content.includes('<table')) {
-                    bubble.innerHTML = content;
-                } else {
-                    bubble.textContent = content;
-                }
+                bubble.textContent = formattedContent;
             }
             
             // Add intent badge for assistant
@@ -513,122 +447,7 @@
             }
             
             messagesDiv.appendChild(messageDiv);
-            
-            // Scroll to bottom - đợi rendering xong
-            setTimeout(() => {
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            }, 100);
-            
-            // Nếu có image, đợi load xong rồi scroll lại
-            const images = messageDiv.querySelectorAll('img');
-            if (images.length > 0) {
-                images.forEach(img => {
-                    if (!img.complete) {
-                        img.onload = () => {
-                            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                        };
-                    }
-                });
-            }
-        }
-        
-        function renderRichContent(container, textContent, messageData) {
-            const messageType = messageData.message_type;
-            const data = messageData.data || {};
-            
-            // Text content - Render as markdown
-            if (textContent) {
-                const contentDiv = document.createElement('div');
-                contentDiv.className = 'message-content';
-                
-                // Render markdown nếu có markdown syntax
-                if (textContent.includes('**') || textContent.includes('|') || textContent.includes('#')) {
-                    contentDiv.innerHTML = marked.parse(textContent);
-                } else {
-                    contentDiv.textContent = textContent;
-                }
-                
-                container.appendChild(contentDiv);
-            }
-            
-            // Render dựa vào type
-            if (messageType === 'table' && data.table_html) {
-                const tableContainer = document.createElement('div');
-                tableContainer.className = 'table-container';
-                tableContainer.innerHTML = data.table_html;
-                container.appendChild(tableContainer);
-                
-                // Thêm info
-                if (data.rows && data.showing_rows) {
-                    const info = document.createElement('div');
-                    info.className = 'text-muted small mt-2';
-                    info.textContent = `Hiển thị ${data.showing_rows} / ${data.rows} dòng`;
-                    container.appendChild(info);
-                }
-            }
-            
-            else if (messageType === 'chart' && data.chart_base64) {
-                const chartContainer = document.createElement('div');
-                chartContainer.className = 'chart-container';
-                
-                const img = document.createElement('img');
-                img.src = `data:image/png;base64,${data.chart_base64}`;
-                img.alt = `Chart: ${data.chart_type}`;
-                img.style.cssText = 'max-width: 100%; height: auto; border-radius: 8px; cursor: pointer; display: block; margin: 0 auto;';
-                img.onclick = function(e) {
-                    e.preventDefault();
-                    const newWindow = window.open('', '_blank');
-                    newWindow.document.write(`<img src="${this.src}" style="max-width: 100%; height: auto;">`);
-                };
-                
-                chartContainer.appendChild(img);
-                container.appendChild(chartContainer);
-                
-                // Thêm note
-                const note = document.createElement('div');
-                note.className = 'text-muted small text-center mt-1';
-                note.innerHTML = '<i class="fas fa-info-circle"></i> Click để xem ảnh lớn hơn';
-                chartContainer.appendChild(note);
-            }
-            
-            else if (messageType === 'mixed') {
-                // Table
-                if (data.table_html) {
-                    const tableContainer = document.createElement('div');
-                    tableContainer.className = 'table-container';
-                    tableContainer.innerHTML = data.table_html;
-                    container.appendChild(tableContainer);
-                }
-                
-                // Chart
-                if (data.chart_base64) {
-                    const chartContainer = document.createElement('div');
-                    chartContainer.className = 'chart-container';
-                    
-                    const img = document.createElement('img');
-                    img.src = `data:image/png;base64,${data.chart_base64}`;
-                    img.alt = `Chart: ${data.chart_type}`;
-                    img.style.cssText = 'max-width: 100%; height: auto; border-radius: 8px; cursor: pointer; display: block; margin: 0 auto;';
-                    img.onclick = function(e) {
-                        e.preventDefault();
-                        const newWindow = window.open('', '_blank');
-                        newWindow.document.write(`<img src="${this.src}" style="max-width: 100%; height: auto;">`);
-                    };
-                    
-                    chartContainer.appendChild(img);
-                    container.appendChild(chartContainer);
-                    
-                    // Thêm note
-                    const note = document.createElement('div');
-                    note.className = 'text-muted small text-center mt-1';
-                    note.innerHTML = '<i class="fas fa-info-circle"></i> Click để xem ảnh lớn hơn';
-                    chartContainer.appendChild(note);
-                }
-            }
-            
-            else if (messageType === 'text') {
-                // Text only - đã được render ở trên
-            }
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
         function showTyping() {
@@ -647,51 +466,6 @@
 
         function closeUploadModal() {
             document.getElementById('uploadModal').style.display = 'none';
-        }
-
-        function addImagePreview(filepath, filename) {
-            const messagesDiv = document.getElementById('chatMessages');
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message assistant';
-            
-            const avatar = document.createElement('div');
-            avatar.className = 'message-avatar';
-            avatar.innerHTML = '<i class="fas fa-robot"></i>';
-            
-            const bubble = document.createElement('div');
-            bubble.className = 'message-bubble';
-            bubble.style.maxWidth = '80%';
-            
-            const img = document.createElement('img');
-            img.src = `/uploads/${filepath.split('/').pop()}`;
-            img.alt = filename;
-            img.style.cssText = 'max-width: 100%; border-radius: 8px; cursor: pointer; display: block;';
-            img.onclick = function(e) {
-                e.preventDefault();
-                const newWindow = window.open('', '_blank');
-                newWindow.document.write(`<img src="${this.src}" style="max-width: 100%; height: auto;">`);
-            };
-            
-            bubble.appendChild(img);
-            
-            const caption = document.createElement('div');
-            caption.className = 'text-muted small mt-2';
-            caption.innerHTML = `<i class="fas fa-image"></i> ${filename} - Click để xem lớn hơn`;
-            bubble.appendChild(caption);
-            
-            messageDiv.appendChild(avatar);
-            messageDiv.appendChild(bubble);
-            
-            messagesDiv.appendChild(messageDiv);
-            
-            // Scroll to bottom - đợi image load xong
-            img.onload = () => {
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            };
-            if (img.complete) {
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            }
         }
 
         async function uploadFile() {
@@ -722,11 +496,6 @@
                     // Show preview if CSV
                     if (data.file_type === 'csv' && data.preview) {
                         addMessage('assistant', data.preview, 'csv_preview');
-                    }
-                    
-                    // Show image if uploaded image
-                    if (data.file_type === 'image' && data.filepath) {
-                        addImagePreview(data.filepath, data.filename);
                     }
                 } else {
                     addMessage('assistant', 'Lỗi upload: ' + data.error, 'error');

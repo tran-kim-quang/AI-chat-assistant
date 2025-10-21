@@ -67,6 +67,17 @@ class ConversationHandler:
         intent = intent_result['intent']
         confidence = intent_result['confidence']
         
+        # OVERRIDE: Kiểm tra CSV context và visualization request
+        # Nếu có CSV và yêu cầu vẽ biểu đồ → LUÔN route về csv_analysis
+        csv_contexts = self.session_manager.get_context(session_id, 'csv')
+        if csv_contexts:
+            message_lower = user_message.lower()
+            viz_keywords = ['biểu đồ', 'chart', 'histogram', 'plot', 'vẽ', 'graph', 'visualize']
+            if any(kw in message_lower for kw in viz_keywords):
+                # Override intent → csv_analysis
+                intent = 'csv_analysis'
+                intent_result['intent'] = 'csv_analysis'
+        
         # Nếu confidence thấp hoặc cần clarification
         if self.intent_classifier.needs_more_context(intent_result):
             clarification = self.intent_classifier.get_clarification_message(intent_result)
@@ -121,13 +132,27 @@ class ConversationHandler:
         try:
             result = csv_process(csv_source, user_message)
             
-            return {
-                'response': result,
-                'intent': intent_result['intent'],
-                'confidence': intent_result['confidence'],
-                'context_updated': False,
-                'suggested_actions': ['ask_more', 'upload_new']
-            }
+            # Kiểm tra result là Dict (rich message) hay str
+            if isinstance(result, dict):
+                # Rich message với chart/table/mixed
+                return {
+                    'response': result.get('content', ''),
+                    'intent': intent_result['intent'],
+                    'confidence': intent_result['confidence'],
+                    'context_updated': False,
+                    'suggested_actions': ['ask_more', 'upload_new'],
+                    'message_type': result.get('type'),
+                    'data': result.get('data', {})
+                }
+            else:
+                # Text response thông thường
+                return {
+                    'response': result,
+                    'intent': intent_result['intent'],
+                    'confidence': intent_result['confidence'],
+                    'context_updated': False,
+                    'suggested_actions': ['ask_more', 'upload_new']
+                }
         
         except Exception as e:
             return {
@@ -190,8 +215,8 @@ class ConversationHandler:
             # Generate và execute code
             result = self.code_executor.generate_and_execute(user_message)
             
-            # Format output
-            formatted_result = self.code_executor.format_result(result)
+            # Format output - KHÔNG hiển thị code, chỉ hiển thị kết quả
+            formatted_result = self.code_executor.format_result(result, show_code=False)
             
             return {
                 'response': formatted_result,

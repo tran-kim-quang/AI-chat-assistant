@@ -95,14 +95,18 @@ Hãy phân tích và trả về JSON với format:
 
 LƯU Ý:
 - Xem xét cả ngữ nghĩa và ngữ cảnh
-- Nếu có file CSV trong context và câu hỏi liên quan dữ liệu → csv_analysis
 - Nếu có ảnh trong context và câu hỏi liên quan ảnh → image_analysis
-- Nếu người dùng muốn "viết code", "tạo hàm", "code để...", "tính toán..." → code_generation
 - Nếu người dùng hỏi "bạn có thể làm gì?" → clarification
-- Nếu người dùng nói "phân tích file này", "xem ảnh này" → cần kiểm tra context
 - Trò chuyện bình thường như "xin chào", "cảm ơn" → general_chat
 
-QUAN TRỌNG với code_generation:
+QUAN TRỌNG - ƯU TIÊN csv_analysis khi có CSV context:
+- Nếu có file CSV trong context và câu hỏi liên quan dữ liệu → csv_analysis
+- "Vẽ biểu đồ/histogram/chart của cột X" + có CSV → csv_analysis (KHÔNG phải code_generation)
+- "Phân tích dữ liệu", "thống kê", "có bao nhiêu..." + có CSV → csv_analysis
+- "Tính trung bình/tổng/max..." + có CSV → csv_analysis
+- Chỉ khi KHÔNG có CSV context, mới là code_generation
+
+QUAN TRỌNG với code_generation (chỉ khi KHÔNG có CSV context):
 - "Viết code tính tổng 1 đến 100" → code_generation
 - "Tạo hàm sắp xếp list" → code_generation
 - "Code để tính fibonacci" → code_generation
@@ -180,6 +184,49 @@ Bạn có thể:
 Bạn muốn tôi giúp gì?"""
         
         return ""
+    
+    def _fallback_classification(self, user_message: str, context_summary: str) -> Dict:
+        """Phân loại dự phòng khi LLM không hoạt động"""
+        message_lower = user_message.lower()
+        
+        # Kiểm tra CSV context
+        has_csv = 'csv' in context_summary.lower() and 'file' in context_summary.lower()
+        
+        # Nếu có CSV và câu hỏi về dữ liệu/visualization
+        if has_csv and any(kw in message_lower for kw in ['biểu đồ', 'chart', 'histogram', 'plot', 'vẽ', 'phân tích', 'thống kê', 'bao nhiêu', 'trung bình', 'tổng', 'max', 'min']):
+            return {
+                'intent': 'csv_analysis',
+                'confidence': 0.8,
+                'reasoning': 'Có CSV context và yêu cầu phân tích dữ liệu',
+                'suggested_action': 'Use csv_process'
+            }
+        
+        # Kiểm tra image context
+        has_image = 'image' in context_summary.lower() or 'ảnh' in context_summary.lower()
+        if has_image:
+            return {
+                'intent': 'image_analysis',
+                'confidence': 0.7,
+                'reasoning': 'Có image context',
+                'suggested_action': 'Use img_process'
+            }
+        
+        # Code generation keywords (khi KHÔNG có CSV)
+        if any(kw in message_lower for kw in ['code', 'viết', 'tạo hàm', 'function', 'fibonacci', 'factorial']):
+            return {
+                'intent': 'code_generation',
+                'confidence': 0.7,
+                'reasoning': 'Yêu cầu viết code',
+                'suggested_action': 'Use code executor'
+            }
+        
+        # Default: general chat
+        return {
+            'intent': 'general_chat',
+            'confidence': 0.6,
+            'reasoning': 'Không match pattern nào',
+            'suggested_action': 'Chat normally'
+        }
 
 
 # Singleton instance

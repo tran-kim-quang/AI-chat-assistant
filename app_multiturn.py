@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session as flask_session
+from flask import Flask, render_template, request, jsonify, session as flask_session, send_from_directory
 import os
 from werkzeug.utils import secure_filename
 import uuid
@@ -98,7 +98,9 @@ def chat():
             'response': result['response'],
             'intent': result['intent'],
             'confidence': result['confidence'],
-            'suggested_actions': result.get('suggested_actions', [])
+            'suggested_actions': result.get('suggested_actions', []),
+            'message_type': result.get('message_type', 'text'),
+            'data': result.get('data', {})
         })
     
     except Exception as e:
@@ -326,6 +328,12 @@ def session_info():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    """Serve uploaded files (images)"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
 if __name__ == '__main__':
