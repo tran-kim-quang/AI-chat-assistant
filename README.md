@@ -1,5 +1,7 @@
-## Tổng quan
+## Demo
+![demo](demo_AI_chat.mp4)
 
+## Tổng quan
 AI-chatbot-assistant có các chức năng:
 - Đọc CSV từ file upload hoặc URL
 - Phân tích và tóm tắt dataset
