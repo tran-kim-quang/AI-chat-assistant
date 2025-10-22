@@ -1,7 +1,3 @@
-"""
-Intent Classifier - Phân loại ý định người dùng bằng AI
-KHÔNG SỬ DỤNG KEYWORD MATCHING
-"""
 import openai
 import os
 from typing import Dict, Optional
